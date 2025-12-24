@@ -75,7 +75,6 @@ void EasythreedUI::blinkLED() {
   else blink_start_ms = ms;
 }
 
-// Boton Filamento: 220C. Funciona si la impresora está en IDLE o PAUSADA (M25 o M600)
 void EasythreedUI::loadButton() {
   if (printingIsActive() && !print_job_timer.isPaused()) return;
 
@@ -125,8 +124,7 @@ void EasythreedUI::loadButton() {
       }
       else if (!flag) {
         flag = true;
-        // Inyecta carga o descarga usando modo relativo (M83)
-        queue.inject(!READ(BTN_RETRACT) ? F("M83\nG1 E540 F2000\nG1 E60 F120\nM400") : F("M83\nG1 E3 F180\nG1 E-40 F3000\nG1 E-560 F1000\nM400"));
+         queue.inject(!READ(BTN_RETRACT) ? F("M83\nG1 E540 F2000\nG1 E60 F120\nM400") : F("M83\nG1 E3 F180\nG1 E-40 F3000\nG1 E-560 F1000\nM400"));
       }
     } break;
   }
@@ -136,7 +134,6 @@ void EasythreedUI::loadButton() {
   void disableStepperDrivers();
 #endif
 
-// Boton Print: Maneja la Pausa Manual (M125+M25) y libera el M600 (M108)
 void EasythreedUI::printButton() {
   enum KeyStatus : uint8_t { KS_IDLE, KS_PRESS, KS_PROCEED };
   static uint8_t key_status = KS_IDLE;
@@ -158,11 +155,9 @@ void EasythreedUI::printButton() {
       key_status = KS_IDLE;
       if (PENDING(ms, key_time, 1200 - BTN_DEBOUNCE_MS)) {
 
-        // --- LOGICA DE DESBLOQUEO PARA M600 ---
-        // Si hay una pausa activa, intentamos liberar a Marlin
-        if (print_job_timer.isPaused()) {
-            queue.inject(F("M108")); // Continúa M600 si está esperando
-            queue.inject(F("M24"));  // Reanuda si era una pausa manual M25
+         if (print_job_timer.isPaused()) {
+            queue.inject(F("M108")); 
+            queue.inject(F("M24"));  
             blink_interval_ms = LED_BLINK_2;
             print_key_flag = PF_PAUSE;
             return;
@@ -182,13 +177,12 @@ void EasythreedUI::printButton() {
 
           case PF_PAUSE: {
             blink_interval_ms = LED_ON;
-            queue.inject(F("M125")); // Aparca el cabezal
-            queue.inject(F("M25"));  // Pausa la ejecución desde SD
+            queue.inject(F("M125")); 
+            queue.inject(F("M25"));  
             print_key_flag = PF_RESUME;
           } break;
 
-          case PF_RESUME: {
-            // Este caso es un "fallback", la lógica de arriba con M108/M24 suele atraparlo
+          case PF_RESUME: {        
             blink_interval_ms = LED_BLINK_2;
             queue.inject(F("M24")); 
             print_key_flag = PF_PAUSE;
@@ -196,7 +190,6 @@ void EasythreedUI::printButton() {
         }
       }
       else {
-        // Largo: Z+20 o Cancelar
         if (print_key_flag == PF_START && !printingIsActive())  {
           blink_interval_ms = LED_ON;
           queue.inject(F("G91\nG0 Z20 F600\nG90"));
@@ -214,7 +207,6 @@ void EasythreedUI::printButton() {
   }
 }
 
-// Botones de movimiento y utilidades (Igual que antes)
 void EasythreedUI::HomeButton() {
   enum KeyStatus : uint8_t { KS_IDLE, KS_PRESS, KS_PROCEED };
   static uint8_t key_status = KS_IDLE;
