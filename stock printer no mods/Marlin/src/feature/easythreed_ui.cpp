@@ -1,23 +1,6 @@
 /**
  * Marlin 3D Printer Firmware
- * Copyright (c) 2021 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
- *
- * Based on Sprinter and grbl.
- * Copyright (c) 2011 Camiel Gubbels / Erik van der Zalm
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- *
+ * EasyThreed K7 Stock Version (100x100)
  */
 
 #include "../inc/MarlinConfigPre.h"
@@ -48,7 +31,7 @@ enum LEDInterval : uint16_t {
   LED_ON      = 4000,
   LED_BLINK_2 = 1000, // Impresión estándar
   LED_BLINK_5 = 300,  // Moviendo filamento
-  LED_BLINK_7 = 50    // Calentando / Atención urgente
+  LED_BLINK_7 = 50    // Calentando / Atención urgente / Autotune
 };
 
 EasythreedUI easythreed_ui;
@@ -60,9 +43,6 @@ static uint8_t shared_flowrate = 100;
 static uint8_t shared_feedrate_index = 1;
 uint16_t blink_interval_ms = LED_OFF; 
 
-//
-// Initialize UI Pins
-//
 void EasythreedUI::init() {
   SET_INPUT_PULLUP(BTN_HOME);     SET_OUTPUT(BTN_HOME_GND);
   SET_INPUT_PULLUP(BTN_FEED);     SET_OUTPUT(BTN_FEED_GND);
@@ -77,9 +57,6 @@ void EasythreedUI::init() {
   blink_interval_ms = LED_OFF; 
 }
 
-//
-// Main UI Loop
-//
 void EasythreedUI::run() {
   blinkLED();
   loadButton();
@@ -91,14 +68,10 @@ void EasythreedUI::run() {
   HandleButton4();
 }
 
-//
-// Status LED logic (Inverted Logic Support)
-//
 void EasythreedUI::blinkLED() {
   static millis_t prev_blink_interval_ms = 0, blink_start_ms = 0;
-
-  if (blink_interval_ms == LED_OFF) { WRITE(EASYTHREED_LED_PIN, HIGH); return; } // OFF (High pin)
-  if (blink_interval_ms >= LED_ON)  { WRITE(EASYTHREED_LED_PIN, LOW); return; }  // ON (Low pin)
+  if (blink_interval_ms == LED_OFF) { WRITE(EASYTHREED_LED_PIN, HIGH); return; }
+  if (blink_interval_ms >= LED_ON)  { WRITE(EASYTHREED_LED_PIN, LOW); return; }
 
   const millis_t ms = millis();
   if (prev_blink_interval_ms != blink_interval_ms) {
@@ -107,12 +80,8 @@ void EasythreedUI::blinkLED() {
   }
 
   uint16_t actual_interval = blink_interval_ms;
-
-  // LED Blink frequency scale based on print speed
   if (printingIsActive() && blink_interval_ms == LED_BLINK_2) {
-    actual_interval = (feedrate_percentage > 100) 
-                      ? (740 - (feedrate_percentage * 3.4)) 
-                      : 400;
+    actual_interval = (feedrate_percentage > 100) ? (740 - (feedrate_percentage * 3.4)) : 400;
   }
 
   if (PENDING(ms, blink_start_ms + actual_interval))
@@ -123,9 +92,6 @@ void EasythreedUI::blinkLED() {
     blink_start_ms = ms;
 }
 
-//
-// Filament Load/Unload Button
-//
 void EasythreedUI::loadButton() {
   if (printingIsActive()) return;
   enum FilamentStatus : uint8_t { FS_IDLE, FS_PRESS, FS_CHECK, FS_PROCEED };
@@ -163,96 +129,68 @@ void EasythreedUI::loadButton() {
       }
       else if (!flag) {
         flag = true;
-        queue.inject(!READ(BTN_RETRACT) ? F("M83\nG1 E100 F120\nM400") : F("M83\nG1 E3 F180\nG1 E-100 F120\nM400"));
+        queue.inject(!READ(BTN_RETRACT) ? F("M83\nG1 E-100 F120\nM400") : F("M83\nG1 E3 F180\nG1 E100 F120\nM400"));
       }
     } break;
   }
 }
 
-// Print Start/Pause/Resume Button
-//
 void EasythreedUI::printButton() {
   enum KeyStatus : uint8_t { KS_IDLE, KS_PRESS, KS_PROCEED };
   static KeyStatus key_status = KS_IDLE;
   static millis_t key_time = 0;
   enum PrintFlag : uint8_t { PF_START, PF_PAUSE, PF_RESUME };
   static PrintFlag print_key_flag = PF_START;
-
   static bool selection_mode = false;
   static uint8_t click_count = 0;
   static millis_t last_click_time = 0;
   static int16_t file_count = 0;
 
-  constexpr millis_t CLICK_TIMEOUT_MS = 5000;
-  constexpr millis_t LONG_PRESS_MS    = 1200;
+  constexpr millis_t CLICK_TIMEOUT_MS = 5000, LONG_PRESS_MS = 1200;
   const millis_t ms = millis();
 
-  // Selection Timeout logic
   if (selection_mode && ELAPSED(ms, last_click_time + CLICK_TIMEOUT_MS)) {
     int16_t index = (file_count - 1) - click_count; 
     if (index < 0) index = 0; 
-    wait_for_user = false; 
-    print_key_flag = PF_PAUSE;
+    wait_for_user = false; print_key_flag = PF_PAUSE;
     card.selectFileByIndex(index);
     card.openAndPrintFile(card.filename);
     blink_interval_ms = LED_BLINK_2; 
-    selection_mode = false;
-    click_count = 0;
+    selection_mode = false; click_count = 0;
   }
 
   switch (key_status) {
-    case KS_IDLE:
-      if (!READ(BTN_PRINT)) { key_time = ms; key_status = KS_PRESS; }
-      break;
-    case KS_PRESS:
-      if (ELAPSED(ms, key_time + BTN_DEBOUNCE_MS))
-        key_status = READ(BTN_PRINT) ? KS_IDLE : KS_PROCEED;
-      break;
+    case KS_IDLE: if (!READ(BTN_PRINT)) { key_time = ms; key_status = KS_PRESS; } break;
+    case KS_PRESS: if (ELAPSED(ms, key_time + BTN_DEBOUNCE_MS)) key_status = READ(BTN_PRINT) ? KS_IDLE : KS_PROCEED; break;
     case KS_PROCEED:
       if (!READ(BTN_PRINT)) break;
       key_status = KS_IDLE;
-
-      // SHORT PRESS REGISTER
       if (PENDING(ms, key_time + LONG_PRESS_MS - BTN_DEBOUNCE_MS)) {
         if (wait_for_user) {
-          blink_interval_ms = LED_BLINK_2;
-          wait_for_user = false; 
-          // Restore normal acceleration and speed on resume
+          blink_interval_ms = LED_BLINK_2; wait_for_user = false; 
           queue.inject(F("M201 X500 Y500\nM203 X60 Y60\nM108\nM24")); 
-          print_key_flag = PF_PAUSE;
-          return;
+          print_key_flag = PF_PAUSE; return;
         }
         if (!printingIsActive() && print_key_flag == PF_START) {
           if (!selection_mode) {
-            card.mount();
-            if (!card.isMounted()) return;
-            card.ls();
-            file_count = card.get_num_items();
+            card.mount(); if (!card.isMounted()) return;
+            card.ls(); file_count = card.get_num_items();
             if (file_count <= 0) return;
-            selection_mode = true;
-            click_count = 0; 
-            blink_interval_ms = LED_ON; 
+            selection_mode = true; click_count = 0; blink_interval_ms = LED_ON; 
           } else {
-            click_count++;
-            if (click_count > 4) click_count = 0;
+            click_count++; if (click_count > 4) click_count = 0;
             WRITE(EASYTHREED_LED_PIN, HIGH); safe_delay(60); 
           }
-          last_click_time = ms;
-          return;
+          last_click_time = ms; return;
         }
         if (printingIsActive() && print_key_flag != PF_RESUME) {
           blink_interval_ms = LED_BLINK_7;
-          // Soft Parking: Limited acceleration and speed
           queue.inject(F("M201 X500 Y500\nM203 X60 Y60\nM125\nM25\nM0")); 
-          print_key_flag = PF_RESUME;
-          return;
+          print_key_flag = PF_RESUME; return;
         }
-      } 
-      // LONG PRESS REGISTER
-      else {
+      } else {
         if (printingIsActive() || wait_for_user || selection_mode) {
-          card.abortFilePrintSoon();
-          wait_for_user = false; selection_mode = false;
+          card.abortFilePrintSoon(); wait_for_user = false; selection_mode = false;
           print_key_flag = PF_START; blink_interval_ms = LED_OFF;
         } else if (print_key_flag == PF_START) {
           queue.inject(F("M201 X500 Y500\nG91\nG1 Z20 F100\nG90"));
@@ -266,13 +204,9 @@ void EasythreedUI::printButton() {
   }
 }
 
-//
-// Home and Speed Adjustment Button
-//
 void EasythreedUI::HomeButton() {
   enum KeyStatus : uint8_t { KS_IDLE, KS_PRESS, KS_PROCEED };
-  static uint8_t key_status = KS_IDLE;
-  static millis_t key_time = 0;
+  static uint8_t key_status = KS_IDLE; static millis_t key_time = 0;
   constexpr uint8_t feedrates[] = {100, 125, 160, 200};
 
   switch (key_status) {
@@ -286,16 +220,20 @@ void EasythreedUI::HomeButton() {
         char cmd[20]; sprintf_P(cmd, PSTR("M220 S%d"), feedrates[shared_feedrate_index]);
         queue.inject(cmd);
       } else {
-        if (PENDING(millis(), key_time + 1200 - BTN_DEBOUNCE_MS)) queue.inject(F("G28"));
-       else queue.inject(F("M303 E0 S210 C5 U1\nM500"));
+        if (PENDING(millis(), key_time + 1200 - BTN_DEBOUNCE_MS)) {
+          // Home y Esquina 1 (X10 Y10 para stock)
+          queue.inject(F("G28\nG0 Z5\nG0 X10 Y10 F2000\nG0 Z0"));
+        } else {
+          // Rutina PID avanzada con enfriamiento a 35C (LED Blink 7)
+          blink_interval_ms = LED_BLINK_7; 
+          queue.inject(F("G28\nG0 X50 Y50 Z1 F2000\nM106 S255\nM109 R35\nM400\nM303 E0 S210 C5 U1\nM500\nM107\nG0 Z15\nG0 X90 Y90 F2000"));
+        }
       }
       break;
   }
 }
 
-//
-// XY Movement / Flow+ Button
-//
+// Botón 1: Zona Segura / Home
 void EasythreedUI::HandleButton1() {
   static uint8_t key1_status = 0; static millis_t key1_time = 0;
   switch (key1_status) {
@@ -308,15 +246,13 @@ void EasythreedUI::HandleButton1() {
           shared_flowrate = min(shared_flowrate + 5, 200);
           char cmd[20]; sprintf_P(cmd, PSTR("M221 S%d"), shared_flowrate);
           queue.inject(cmd);
-        } else queue.inject(F("G0 Z20\nG0 X100 Y100\nG0 Z30"));
+        } else queue.inject(F("G0 Z15\nG0 X50 Y50 F2000")); // Centro como zona segura
       }
       break;
   }
 }
 
-//
-// XY Movement / Flow- Button
-//
+// Botón 2: Esquina Trasera Izquierda (Coordenada original: X0 Y100)
 void EasythreedUI::HandleButton2() {
   static uint8_t key2_status = 0; static millis_t key2_time = 0;
   switch (key2_status) {
@@ -329,15 +265,13 @@ void EasythreedUI::HandleButton2() {
           shared_flowrate = max(shared_flowrate - 5, 50);
           char cmd[20]; sprintf_P(cmd, PSTR("M221 S%d"), shared_flowrate);
           queue.inject(cmd);
-        } else queue.inject(F("G0 Z5\nG0 X107 Y7\nG0 Z0"));
+        } else queue.inject(F("G0 Z5\nG0 X0 Y100 F2000\nG0 Z0"));
       }
       break;
   }
 }
 
-//
-// XY Movement / Temp+ Button
-//
+// Botón 3: Esquina Trasera Derecha (Coordenada original: X100 Y100)
 void EasythreedUI::HandleButton3() {
   enum KeyStatus : uint8_t { KS_IDLE, KS_PRESS, KS_PROCEED };
   static uint8_t key_status = KS_IDLE; static millis_t key_time = 0;
@@ -350,14 +284,12 @@ void EasythreedUI::HandleButton3() {
         const int new_temp = constrain(thermalManager.degTargetHotend(0) + 5, 0, UI_MAX_TEMP);
         char cmd[16]; sprintf_P(cmd, PSTR("M104 S%i"), new_temp);
         queue.inject(cmd);
-      } else queue.inject(F("G0 Z5\nG0 X107 Y105\nG0 Z0"));
+      } else queue.inject(F("G0 Z5\nG0 X100 Y100 F2000\nG0 Z0"));
       break;
   }
 }
 
-//
-// XY Movement / Temp- Button
-//
+// Botón 4: Esquina Frontal Derecha (Coordenada original: X100 Y0)
 void EasythreedUI::HandleButton4() {
   static uint8_t key4_status = 0; static millis_t key4_time = 0;
   switch (key4_status) {
@@ -370,7 +302,7 @@ void EasythreedUI::HandleButton4() {
           const int new_temp = constrain(thermalManager.degTargetHotend(0) - 5, 0, UI_MAX_TEMP);
           char cmd[16]; sprintf_P(cmd, PSTR("M104 S%i"), new_temp);
           queue.inject(cmd);
-        } else queue.inject(F("G0 Z5\nG0 X7 Y105\nG0 Z0"));
+        } else queue.inject(F("G0 Z5\nG0 X100 Y0 F2000\nG0 Z0"));
       }
       break;
   }
